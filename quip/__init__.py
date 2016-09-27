@@ -34,13 +34,56 @@ import json
 import logging
 import sys
 import time
-import urllib
-import urllib2
-import xml.etree.cElementTree
+import urllib.request
+import urllib.parse
+#import urllib2
+import importlib
+import xml.etree.ElementTree
+import html.parser
 
-reload(sys)
-sys.setdefaultencoding('utf8')
+importlib.reload(sys)
+#sys.setdefaultencoding('utf8')
 
+class QuipHTMLParser(html.parser.HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.cell_text = ''
+    def handle_starttag(self, tag, attrs):
+        if tag == 'span' or tag == 'td':
+            pass
+        else:
+            if not attrs:
+                str_to_append = '<' + tag + '>'
+                #print(str_to_append)
+                self.cell_text += str_to_append
+            else:
+                for attr in attrs:
+                    if attr[0] == "href":
+                        str_to_append = '<a href=\"' + attr[1] + '\">'
+                        #print(str_to_append)
+                        self.cell_text += str_to_append
+    def handle_endtag(self, tag):
+            if tag == 'span' or tag == 'td' or tag == 'control':
+                pass
+            else:
+                str_to_append = '</' + tag + '>'
+                #print(str_to_append)
+                self.cell_text += str_to_append
+    def handle_startendtag(self, tag, attrs):
+        if not attrs:
+            str_to_append = '<' + tag + ' />'
+            #print(str_to_append)
+            self.cell_text += str_to_append
+        else:
+            for attr in attrs:
+                if attr[0] == "href":
+                    str_to_append = '<a href=' + attr[1] + '>'
+                    self.cell_text += str_to_append
+    def handle_data(self, data):
+        self.cell_text += data
+    def get_cell_text(self, input_html):
+        self.feed(input_html)
+        return self.cell_text
 
 class QuipClient(object):
     """A Quip API client"""
@@ -419,7 +462,7 @@ class QuipClient(object):
         else:
             item.attrib["class"] = ""
         return self.edit_document(thread_id=thread_id,
-                                  content=xml.etree.cElementTree.tostring(item),
+                                  content=xml.etree.ElementTree.tostring(item),
                                   section_id=item.attrib["id"],
                                   operation=self.REPLACE_SECTION)
 
@@ -549,6 +592,8 @@ class QuipClient(object):
             if list(cell.itertext())[0].lower() == value.lower():
                 return row
 
+
+
     def parse_spreadsheet_contents(self, spreadsheet_tree):
         """Return a python-friendly representation of the given spreadsheet.
 
@@ -566,11 +611,15 @@ class QuipClient(object):
                 "cells": collections.OrderedDict(),
             }
             for i, cell in enumerate(row):
+                #print(xml.etree.ElementTree.tostring(cell).decode() + 'EOC')
+                quip_parser = QuipHTMLParser()
                 if cell.tag != "td":
                     continue
+                content_str = xml.etree.ElementTree.tostring(cell).decode().replace('\n','')
+                cell_contents = quip_parser.get_cell_text(content_str)[:-6] #there is a break (<br />) at the end of every cell; slicing the string removes it
                 value["cells"][spreadsheet["headers"][i]] = {
                     "id": cell.attrib.get("id"),
-                    "content": list(cell.itertext())[0],
+                    "content": cell_contents,
                 }
             if len(value["cells"]):
                 spreadsheet["rows"].append(value)
@@ -579,7 +628,7 @@ class QuipClient(object):
     def parse_document_html(self, document_html):
         """Return an `ElementTree` for the given Quip document HTML."""
         document_xml = "<html>" + document_html + "</html>"
-        return xml.etree.cElementTree.fromstring(document_xml.encode("utf-8"))
+        return xml.etree.ElementTree.fromstring(document_xml.encode("utf-8"))
 
     def parse_micros(self, usec):
         """Return a `datetime` for the given microsecond string."""
@@ -593,13 +642,13 @@ class QuipClient(object):
         https://docs.python.org/2/library/urllib2.html#urllib2.urlopen
         """
 
-        request = urllib2.Request(
+        request = urllib.request.Request(
             url=self._url("blob/%s/%s" % (thread_id, blob_id)))
         if self.access_token:
             request.add_header("Authorization", "Bearer " + self.access_token)
         try:
-            return urllib2.urlopen(request, timeout=self.request_timeout)
-        except urllib2.HTTPError, error:
+            return urllib.request.urlopen(request, timeout=self.request_timeout)
+        except urllib.request.HTTPError as error:
             try:
                 # Extract the developer-friendly error message
                 message = json.loads(error.read())["error_description"]
@@ -635,7 +684,7 @@ class QuipClient(object):
                 files={"blob": blob}, headers=headers)
             response.raise_for_status()
             return response.json()
-        except requests.RequestException, error:
+        except requests.RequestException as error:
             try:
                 # Extract the developer-friendly error message from the response
                 message = error.response.json()["error_description"]
@@ -644,17 +693,17 @@ class QuipClient(object):
             raise QuipError(error.response.status_code, message, error)
 
     def _fetch_json(self, path, post_data=None, **args):
-        request = urllib2.Request(url=self._url(path, **args))
+        request = urllib.request.Request(url=self._url(path, **args))
         if post_data:
             post_data = dict((k, v) for k, v in post_data.items()
                              if v or isinstance(v, int))
-            request.data = urllib.urlencode(self._clean(**post_data))
+            request.data = urllib.parse.urlencode(self._clean(**post_data))
         if self.access_token:
             request.add_header("Authorization", "Bearer " + self.access_token)
         try:
             return json.loads(
-                urllib2.urlopen(request, timeout=self.request_timeout).read())
-        except urllib2.HTTPError, error:
+                (urllib.request.urlopen(request, timeout=self.request_timeout).read()).decode('utf-8'))
+        except urllib.request.HTTPError as error:
             try:
                 # Extract the developer-friendly error message from the response
                 message = json.loads(error.read())["error_description"]
@@ -682,7 +731,7 @@ class QuipClient(object):
         url = self.base_url + "/1/" + path
         args = self._clean(**args)
         if args:
-            url += "?" + urllib.urlencode(args)
+            url += "?" + urllib.parse.urlencode(args)
         return url
 
 
@@ -781,6 +830,6 @@ def dictReader(access_token, thread_id):
 
 if __name__ == '__main__':
     key, doc_id, verbose = get_quip_environment('config_settings.json')
-    print dictReader(key, doc_id)
+    print(dictReader(key, doc_id))
 
         # update_spreadsheet_row
