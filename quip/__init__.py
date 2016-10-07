@@ -28,7 +28,6 @@ methods for document editing. For example, you can use `add_to_first_list`
 to append items (in Markdown) to the first bulleted or checklist in a
 given document, which is useful for automating a task list.
 """
-import argparse
 import datetime
 import json
 import logging
@@ -36,19 +35,23 @@ import sys
 import time
 import urllib.request
 import urllib.parse
-#import urllib2
 import importlib
 import xml.etree.ElementTree
 import html.parser
+import re
 
 importlib.reload(sys)
-#sys.setdefaultencoding('utf8')
+
 
 class QuipHTMLParser(html.parser.HTMLParser):
+    """Parser that removes some misc html."""
+
     def __init__(self):
+        """Init the class."""
         super().__init__()
         self.cell_text = ''
     def handle_starttag(self, tag, attrs):
+
         if tag == 'span' or tag == 'td':
             pass
         else:
@@ -60,14 +63,12 @@ class QuipHTMLParser(html.parser.HTMLParser):
                 for attr in attrs:
                     if attr[0] == "href":
                         str_to_append = '<a href=\"' + attr[1] + '\">'
-                        #print(str_to_append)
                         self.cell_text += str_to_append
     def handle_endtag(self, tag):
             if tag == 'span' or tag == 'td' or tag == 'control':
                 pass
             else:
                 str_to_append = '</' + tag + '>'
-                #print(str_to_append)
                 self.cell_text += str_to_append
     def handle_startendtag(self, tag, attrs):
         if not attrs:
@@ -89,19 +90,11 @@ class QuipClient(object):
     """A Quip API client"""
 
     # Edit operations
-    APPEND, \
-    PREPEND, \
-    AFTER_SECTION, \
-    BEFORE_SECTION, \
-    REPLACE_SECTION, \
-    DELETE_SECTION = range(6)
+    APPEND, PREPEND, AFTER_SECTION, BEFORE_SECTION, \
+    REPLACE_SECTION, DELETE_SECTION = range(6)
 
     # Folder colors
-    MANILA, \
-    RED, \
-    ORANGE, \
-    GREEN, \
-    BLUE = range(5)
+    MANILA, RED, ORANGE, GREEN, BLUE = range(5)
 
     def __init__(self, access_token=None, client_id=None, client_secret=None,
                  base_url=None, request_timeout=None, retry_rate_limit=False):
@@ -166,6 +159,7 @@ class QuipClient(object):
         return self._fetch_json("folders/", post_data={"ids": ",".join(ids)})
 
     def new_folder(self, title, parent_id=None, color=None, member_ids=[]):
+        """Create new folder."""
         return self._fetch_json("folders/new", post_data={
             "title": title,
             "parent_id": parent_id,
@@ -174,6 +168,7 @@ class QuipClient(object):
         })
 
     def update_folder(self, folder_id, color=None, title=None):
+        """Update floder."""
         return self._fetch_json("folders/update", post_data={
             "folder_id": folder_id,
             "color": color,
@@ -181,14 +176,14 @@ class QuipClient(object):
         })
 
     def add_folder_members(self, folder_id, member_ids):
-        """Adds the given users to the given folder."""
+        """Add the given users to the given folder."""
         return self._fetch_json("folders/add-members", post_data={
             "folder_id": folder_id,
             "member_ids": ",".join(member_ids),
         })
 
     def remove_folder_members(self, folder_id, member_ids):
-        """Removes the given users from the given folder."""
+        """Remove the given users from the given folder."""
         return self._fetch_json("folders/remove-members", post_data={
             "folder_id": folder_id,
             "member_ids": ",".join(member_ids),
@@ -208,7 +203,7 @@ class QuipClient(object):
             count=count)
 
     def new_message(self, thread_id, content=None, **kwargs):
-        """Sends a message on the given thread.
+        """Send a message on the given thread.
 
         `content` is plain text, not HTML.
         """
@@ -234,27 +229,26 @@ class QuipClient(object):
             count=count)
 
     def add_thread_members(self, thread_id, member_ids):
-        """Adds the given folder or user IDs to the given thread."""
+        """Add the given folder or user IDs to the given thread."""
         return self._fetch_json("threads/add-members", post_data={
             "thread_id": thread_id,
             "member_ids": ",".join(member_ids),
         })
 
     def remove_thread_members(self, thread_id, member_ids):
-        """Removes the given folder or user IDs from the given thread."""
+        """Remove the given folder or user IDs from the given thread."""
         return self._fetch_json("threads/remove-members", post_data={
             "thread_id": thread_id,
             "member_ids": ",".join(member_ids),
         })
 
     def move_thread(self, thread_id, source_folder_id, destination_folder_id):
-        """Moves the given thread from the source folder to the destination one.
-        """
+        """Move the given thread from the source to the destination folder."""
         self.add_thread_members(thread_id, [destination_folder_id])
         self.remove_thread_members(thread_id, [source_folder_id])
 
     def new_document(self, content, format="html", title=None, member_ids=[]):
-        """Creates a new document from the given content.
+        """Create a new document from the given content.
 
         To create a document in a folder, include the folder ID in the list
         of member_ids, e.g.,
@@ -272,7 +266,7 @@ class QuipClient(object):
         })
 
     def copy_document(self, id, title=None, member_ids=[]):
-        """Creates a new document from the given thread ID.
+        """Create a new document from the given thread ID.
 
         To create it in a folder, include the folder ID in member_ids.
         """
@@ -282,7 +276,9 @@ class QuipClient(object):
             member_ids=member_ids)
 
     def merge_comments(self, original_id, children_ids):
-        """Given an original document and a set of exact duplicates, copies
+        """Merge comments from duplicate to origional.
+
+        Given an original document and a set of exact duplicates, copies
         all comments and messages on the duplicates to the original.
         """
         import re
@@ -308,7 +304,8 @@ class QuipClient(object):
                             "highlight_section_ids"][0]
                     else:
                         anno_loc = thread["html"].find(
-                            '<annotation id="%s"' % message["annotation"]["id"])
+                            '<annotation id="{}"'.format(
+                                message["annotation"]["id"]))
                         loc = thread["html"].rfind("id=", 0, anno_loc)
                         if anno_loc >= 0 and loc >= 0:
                             section_id = thread["html"][loc+4:loc+15]
@@ -325,9 +322,9 @@ class QuipClient(object):
                         kwargs["attachments"] = ",".join(attachments)
                 self.new_message(original_id, **kwargs)
 
-    def edit_document(self, thread_id, content, operation=APPEND, format="html",
-                      section_id=None, **kwargs):
-        """Edits the given document, adding the given content.
+    def edit_document(self, thread_id, content, operation=APPEND,
+                      format="html", section_id=None, **kwargs):
+        """Edit the given document, adding the given content.
 
         `operation` should be one of the constants described above. If
         `operation` is relative to another section of the document, you must
@@ -344,7 +341,7 @@ class QuipClient(object):
         return self._fetch_json("threads/edit-document", post_data=args)
 
     def add_to_first_list(self, thread_id, *items, **kwargs):
-        """Adds the given items to the first list in the given document.
+        """Add the given items to the first list in the given document.
 
             client = quip.QuipClient(...)
             client.add_to_first_list(thread_id, "Try the Quip API")
@@ -369,11 +366,10 @@ class QuipClient(object):
         return self.edit_document(**args)
 
     def add_to_spreadsheet(self, thread_id, *rows, **kwargs):
-        """Add the given rows to the named (or first) spreadsheet in the
-        given document.
+        """Add the given rows to the named (or first) spreadsheet in the doc.
 
-            client = quip.QuipClient(...)
-            client.add_to_spreadsheet(thread_id, ["5/1/2014", 2.24])
+        client = quip.QuipClient(...)
+        client.add_to_spreadsheet(thread_id, ["5/1/2014", 2.24])
 
         """
         content = "".join(["<tr>%s</tr>" % "".join(
@@ -389,7 +385,8 @@ class QuipClient(object):
             section_id=section_id,
             operation=self.AFTER_SECTION)
 
-    def update_spreadsheet_row(self, thread_id, header, value, updates, **args):
+    def update_spreadsheet_row(self, thread_id, header, value,
+                               updates, **args):
         """Find the row where the given header column is the given value.
 
         Then apply the given updates. Updates is a dict from header to
@@ -481,6 +478,7 @@ class QuipClient(object):
         return self._get_container(thread_id, document_html, "ul", -1)
 
     def get_section(self, section_id, thread_id=None, document_html=None):
+        """Get section from in the document."""
         if not document_html:
             document_html = self.get_thread(thread_id).get("html")
             if not document_html:
@@ -492,6 +490,7 @@ class QuipClient(object):
         return element[0]
 
     def get_named_spreadsheet(self, name, thread_id=None, document_html=None):
+        """Get spreadsheet form the document."""
         if not document_html:
             document_html = self.get_thread(thread_id).get("html")
             if not document_html:
@@ -592,8 +591,6 @@ class QuipClient(object):
             if list(cell.itertext())[0].lower() == value.lower():
                 return row
 
-
-
     def parse_spreadsheet_contents(self, spreadsheet_tree):
         """Return a python-friendly representation of the given spreadsheet.
 
@@ -611,12 +608,12 @@ class QuipClient(object):
                 "cells": collections.OrderedDict(),
             }
             for i, cell in enumerate(row):
-                #print(xml.etree.ElementTree.tostring(cell).decode() + 'EOC')
                 quip_parser = QuipHTMLParser()
                 if cell.tag != "td":
                     continue
                 content_str = xml.etree.ElementTree.tostring(cell).decode().replace('\n','')
-                cell_contents = quip_parser.get_cell_text(content_str)[:-6] #there is a break (<br />) at the end of every cell; slicing the string removes it
+                cell_contents = quip_parser.get_cell_text(content_str)[:-6]
+                # there is a break (<br />) at the end of every cell; remove it
                 value["cells"][spreadsheet["headers"][i]] = {
                     "id": cell.attrib.get("id"),
                     "content": cell_contents,
@@ -647,7 +644,8 @@ class QuipClient(object):
         if self.access_token:
             request.add_header("Authorization", "Bearer " + self.access_token)
         try:
-            return urllib.request.urlopen(request, timeout=self.request_timeout)
+            return urllib.request.urlopen(request,
+                                          timeout=self.request_timeout)
         except urllib.request.HTTPError as error:
             try:
                 # Extract the developer-friendly error message
@@ -655,7 +653,7 @@ class QuipClient(object):
             except Exception:
                 raise error
             if (self.retry_rate_limit and error.code == 503 and
-                message == "Over Rate Limit"):
+               message == "Over Rate Limit"):
                 # Retry later.
                 reset_time = float(error.headers.get("X-RateLimit-Reset"))
                 delay = max(2, reset_time - time.time() + 1)
@@ -666,10 +664,11 @@ class QuipClient(object):
                 raise QuipError(error.code, message, error)
 
     def put_blob(self, thread_id, blob, name=None):
-        """Upload an image or other blob to the given Quip thread. Return an
-        ID that can be used to add the image to the document of the thread.
+        """Upload an image or other blob to the given Quip thread.
 
-        blob can be any file-like object. Requires the 'requests' module.
+        Return an ID that can be used to add the image to the document
+        of the thread. blob can be any file-like object. Requires the
+        'requests' module.
         """
         import requests
         url = "blob/" + thread_id
@@ -686,7 +685,6 @@ class QuipClient(object):
             return response.json()
         except requests.RequestException as error:
             try:
-                # Extract the developer-friendly error message from the response
                 message = error.response.json()["error_description"]
             except Exception:
                 raise error
@@ -701,16 +699,15 @@ class QuipClient(object):
         if self.access_token:
             request.add_header("Authorization", "Bearer " + self.access_token)
         try:
-            return json.loads(
-                (urllib.request.urlopen(request, timeout=self.request_timeout).read()).decode('utf-8'))
+            return json.loads((urllib.request.urlopen(request, timeout=self.request_timeout).read()).decode('utf-8'))
         except urllib.request.HTTPError as error:
             try:
-                # Extract the developer-friendly error message from the response
+                # Extract the developer-friendly error message.
                 message = json.loads(error.read())["error_description"]
             except Exception:
                 raise error
             if (self.retry_rate_limit and error.code == 503 and
-                message == "Over Rate Limit"):
+               message == "Over Rate Limit"):
                 # Retry later.
                 reset_time = float(error.headers.get("X-RateLimit-Reset"))
                 delay = max(2, reset_time - time.time() + 1)
@@ -736,69 +733,13 @@ class QuipClient(object):
 
 
 class QuipError(Exception):
+    """Error related to Quip."""
+
     def __init__(self, code, message, http_error):
+        """Init the class."""
         Exception.__init__(self, "%d: %s" % (code, message))
         self.code = code
         self.http_error = http_error
-
-
-
-"""Script to import and parse a colaberative quip document.
-
-This example will print any quip spreadsheet in a datastructure similar to
-that returned by csv.dictReader
-
-Read more at:
-https://fb.quip.com/api/reference#threads-edit-document
-"""
-
-import quip
-
-
-def get_quip_environment(default_settings_file='config_settings.json'):
-    """Get commandline args and/or parse config file for intended operation.
-
-    usage: quip_puller.py [-h] [-v] [--quip_api_key QUIP_API_KEY]
-                          [--quip_doc_id QUIP_DOC_ID]
-                          [config_file]
-
-    Convert a quip document to misc report formats.
-
-    positional arguments:
-    config_file                   The configuration file specs.
-
-    optional arguments:
-    -h, --help                    show this help message and exit
-    -v, --verbose
-    --quip_api_key QUIP_API_KEY   API key for quip.
-    --quip_doc_id QUIP_DOC_ID     Quip document ID.
-    """
-    parser = argparse.ArgumentParser(description='Convert a quip document '
-                                     'to misc report formats.')
-    parser.add_argument('-v', '--verbose', action='store_true')
-    parser.add_argument('config_file', type=str, nargs='?',
-                        default=default_settings_file,
-                        help='The configuration file specs.')
-    parser.add_argument('--quip_api_key', type=str, action='store',
-                        help='API key for quip.')
-    parser.add_argument('--quip_doc_id', type=str, action='store',
-                        help='Quip document ID.')
-    args = parser.parse_args()
-    try:
-        with open(args.config_file) as f:
-            settings = json.loads(f.read())
-    except (IOError):
-        print('{} does not exsist.'.format(args.config_file))
-        exit()
-    # Default behaviour is to override if api or quip id explicitly passed.
-    if args.quip_api_key is not None:
-        settings['quip_api_key'] = args.quip_api_key
-    if args.quip_doc_id is not None:
-        settings['quip_doc_id'] = args.quip_doc_id
-
-    print('Trying:\n  doc:{}\n  key:{}\n'.format(settings['quip_doc_id'],
-                                                 settings['quip_api_key']))
-    return (settings['quip_api_key'], settings['quip_doc_id'], args.verbose)
 
 
 def dictReader(access_token, thread_id):
@@ -808,28 +749,29 @@ def dictReader(access_token, thread_id):
     that returned by csv.dictReader. Read more at:
     https://fb.quip.com/api/reference#threads-edit-document
     """
-    def normalize_field(name):
-        """Column names have inconsistent spaces and caps, so normalize."""
-        return name.replace(' ', '_').lower()
+    def convert_markup_to_py(cell_value):
+        """Convert an html formated string to native py format."""
+        cell_value = cell_value.replace('<br />', '\n')
+        cell_value = cell_value.replace('<br/>', '\n')
+        cell_value = cell_value.replace('<br>', '\n')
+        cell_value = cell_value.replace('\xa0', '')
+        cell_value = cell_value.replace('\u200b', '')
+        cell_value = re.sub('<[^>]*>', '', cell_value)
+        return cell_value
 
     client = QuipClient(access_token=access_token)
     print('Loading {}'.format(client.get_thread(thread_id)['thread']['title']))
     spreadsheet_tree = client.get_first_spreadsheet(thread_id)
+
     spreadsheet = client.parse_spreadsheet_contents(spreadsheet_tree)
     rows = spreadsheet['rows']
     results = []
     for row in rows[1:]:
-        results.append({c: d['content'] for c, d in row['cells'].iteritems()})
+        results.append({c: convert_markup_to_py(d['content'])
+                       for c, d in row['cells'].items()})
 
-    column_names = {column_id: normalize_field(name['content'])
-                    for column_id, name in rows[0]['cells'].iteritems()}
+    column_names = {column_id: name['content']
+                    for column_id, name in rows[0]['cells'].items()}
 
     return [dict(zip(map(lambda x: column_names[x], r.keys()), r.values()))
             for r in results]
-
-
-if __name__ == '__main__':
-    key, doc_id, verbose = get_quip_environment('config_settings.json')
-    print(dictReader(key, doc_id))
-
-        # update_spreadsheet_row
