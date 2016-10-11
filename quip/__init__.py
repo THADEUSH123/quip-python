@@ -50,49 +50,19 @@ class QuipHTMLParser(html.parser.HTMLParser):
         """Init the class."""
         super().__init__()
         self.cell_text = ''
-    def handle_starttag(self, tag, attrs):
 
-        if tag == 'span' or tag == 'td':
-            pass
-        else:
-            if not attrs:
-                str_to_append = '<' + tag + '>'
-                #print(str_to_append)
-                self.cell_text += str_to_append
-            else:
-                for attr in attrs:
-                    if attr[0] == "href":
-                        str_to_append = '<a href=\"' + attr[1] + '\">'
-                        self.cell_text += str_to_append
-    def handle_endtag(self, tag):
-            if tag == 'span' or tag == 'td' or tag == 'control':
-                pass
-            else:
-                str_to_append = '</' + tag + '>'
-                self.cell_text += str_to_append
-    def handle_startendtag(self, tag, attrs):
-        if not attrs:
-            str_to_append = '<' + tag + ' />'
-            #print(str_to_append)
-            self.cell_text += str_to_append
-        else:
-            for attr in attrs:
-                if attr[0] == "href":
-                    str_to_append = '<a href=' + attr[1] + '>'
-                    self.cell_text += str_to_append
-    def handle_data(self, data):
-        self.cell_text += data
     def get_cell_text(self, input_html):
+        """Not sure."""
         self.feed(input_html)
         return self.cell_text
 
+
 class QuipClient(object):
-    """A Quip API client"""
+    """A Quip API client."""
 
     # Edit operations
-    APPEND, PREPEND, AFTER_SECTION, BEFORE_SECTION, \
-    REPLACE_SECTION, DELETE_SECTION = range(6)
-
+    (APPEND, PREPEND, AFTER_SECTION, BEFORE_SECTION,
+     REPLACE_SECTION, DELETE_SECTION) = range(6)
     # Folder colors
     MANILA, RED, ORANGE, GREEN, BLUE = range(5)
 
@@ -343,8 +313,8 @@ class QuipClient(object):
     def add_to_first_list(self, thread_id, *items, **kwargs):
         """Add the given items to the first list in the given document.
 
-            client = quip.QuipClient(...)
-            client.add_to_first_list(thread_id, "Try the Quip API")
+        client = quip.QuipClient(...)
+        client.add_to_first_list(thread_id, "Try the Quip API")
 
         """
         items = [item.replace("\n", " ") for item in items]
@@ -611,7 +581,8 @@ class QuipClient(object):
                 quip_parser = QuipHTMLParser()
                 if cell.tag != "td":
                     continue
-                content_str = xml.etree.ElementTree.tostring(cell).decode().replace('\n','')
+                content_str = xml.etree.ElementTree.tostring(cell)
+                content_str = content_str.decode().replace('\n', '')
                 cell_contents = quip_parser.get_cell_text(content_str)[:-6]
                 # there is a break (<br />) at the end of every cell; remove it
                 value["cells"][spreadsheet["headers"][i]] = {
@@ -632,13 +603,11 @@ class QuipClient(object):
         return datetime.datetime.utcfromtimestamp(usec / 1000000.0)
 
     def get_blob(self, thread_id, blob_id):
-        """Return a file-like object with the contents of the given blob from
-        the given thread.
+        """Return a file-like object with the contents of the given blob.
 
         The object is described in detail here:
         https://docs.python.org/2/library/urllib2.html#urllib2.urlopen
         """
-
         request = urllib.request.Request(
             url=self._url("blob/%s/%s" % (thread_id, blob_id)))
         if self.access_token:
@@ -699,7 +668,10 @@ class QuipClient(object):
         if self.access_token:
             request.add_header("Authorization", "Bearer " + self.access_token)
         try:
-            return json.loads((urllib.request.urlopen(request, timeout=self.request_timeout).read()).decode('utf-8'))
+            return json.loads(
+                (urllib.request.urlopen(
+                    request,
+                    timeout=self.request_timeout).read()).decode('utf-8'))
         except urllib.request.HTTPError as error:
             try:
                 # Extract the developer-friendly error message.
@@ -731,6 +703,34 @@ class QuipClient(object):
             url += "?" + urllib.parse.urlencode(args)
         return url
 
+    def convert_to_DictReader(self, spreadsheet_tree):
+        """Parse any spreadsheet and return a simple datastructure.
+
+        Structure is similar to that returned by csv.dictReader.
+        """
+        def convert_markup_to_py(cell_value):
+            """Convert an html formated string to native py format."""
+            cell_value = cell_value.replace('<br />', '\n')
+            cell_value = cell_value.replace('<br/>', '\n')
+            cell_value = cell_value.replace('<br>', '\n')
+            cell_value = cell_value.replace('\xa0', '')
+            cell_value = cell_value.replace('\u200b', '')
+            cell_value = re.sub('<[^>]*>', '', cell_value)
+            return cell_value
+
+        spreadsheet = self.parse_spreadsheet_contents(spreadsheet_tree)
+        rows = spreadsheet['rows']
+        results = []
+        for row in rows[1:]:
+            results.append({c: convert_markup_to_py(d['content'])
+                           for c, d in row['cells'].items()})
+
+        column_names = {column_id: name['content']
+                        for column_id, name in rows[0]['cells'].items()}
+
+        return [dict(zip(map(lambda x: column_names[x], r.keys()), r.values()))
+                for r in results]
+
 
 class QuipError(Exception):
     """Error related to Quip."""
@@ -740,38 +740,3 @@ class QuipError(Exception):
         Exception.__init__(self, "%d: %s" % (code, message))
         self.code = code
         self.http_error = http_error
-
-
-def dictReader(access_token, thread_id):
-    """Import and parse a colaberative quip document.
-
-    Specifically parse any spreadsheet and return a datastructure similar to
-    that returned by csv.dictReader. Read more at:
-    https://fb.quip.com/api/reference#threads-edit-document
-    """
-    def convert_markup_to_py(cell_value):
-        """Convert an html formated string to native py format."""
-        cell_value = cell_value.replace('<br />', '\n')
-        cell_value = cell_value.replace('<br/>', '\n')
-        cell_value = cell_value.replace('<br>', '\n')
-        cell_value = cell_value.replace('\xa0', '')
-        cell_value = cell_value.replace('\u200b', '')
-        cell_value = re.sub('<[^>]*>', '', cell_value)
-        return cell_value
-
-    client = QuipClient(access_token=access_token)
-    print('Loading {}'.format(client.get_thread(thread_id)['thread']['title']))
-    spreadsheet_tree = client.get_first_spreadsheet(thread_id)
-
-    spreadsheet = client.parse_spreadsheet_contents(spreadsheet_tree)
-    rows = spreadsheet['rows']
-    results = []
-    for row in rows[1:]:
-        results.append({c: convert_markup_to_py(d['content'])
-                       for c, d in row['cells'].items()})
-
-    column_names = {column_id: name['content']
-                    for column_id, name in rows[0]['cells'].items()}
-
-    return [dict(zip(map(lambda x: column_names[x], r.keys()), r.values()))
-            for r in results]

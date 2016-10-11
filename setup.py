@@ -6,12 +6,12 @@ except ImportError:
     from distutils.core import setup
 
 config = {
-    'description': 'Interact with the Quip.com API.',
+    'description': 'Client library for quip.com API in py3.',
     'author': 'Thadeus Hickman',
-    'url': 'URL to get it at.',
-    'download_url': 'Where to download it.',
+    'url': 'github.com/THADEUSH123/quip-python',
+    'download_url': 'github.com/THADEUSH123/quip-python',
     'author_email': 'thadeus.hickman@gmail.com',
-    'version': '0.1',
+    'version': '2.0',
     'install_requires': ['nose'],
     'packages': ['quip'],
     'scripts': [],
