@@ -43,7 +43,7 @@ get_quip_environment() implements command line shortcuts for configuration infor
 ```
 
 If the config file is not used, the usage is:
-```python
+```
 usage: __init__.py [-h] [-v] [--quip_api_key QUIP_API_KEY]
                    [--quip_doc_id QUIP_DOC_ID]
                    [config_file]
