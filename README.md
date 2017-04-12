@@ -1,5 +1,5 @@
 # quip-python
-An unoffical Quip API Python client library. This extends the official library on [Quip's github](https://github.com/quip/quip-api/tree/master/python).
+An unoffical Quip API Python client library witten in python 3.5. This extends the official library on [Quip's github](https://github.com/quip/quip-api/tree/master/python), which seems to break often due to html parsing bugs and is written in python 2.7.
 
 This makes installing simpler and adds some higher level functionality that is not native to the offical client library.
 
@@ -16,12 +16,17 @@ rm -r quip-python-master quip-python-master.zip
 ```
 
 ## Usage
-### Example usage
-* Download the repo.
+### Example usage 1
 
-
-
+```python
+client = quip.QuipClient(access_token="...")
+user = client.get_authenticated_user()
+starred = client.get_folder(user["starred_folder_id"])
+print "There are", len(starred["children"]), "items in your starred folder"
 ```
+
+### Example usage 2
+```python
 import quip
 
 key, doc_id, verbose = quip.get_quip_environment('config_settings.json')
@@ -38,7 +43,7 @@ get_quip_environment() implements command line shortcuts for configuration infor
 ```
 
 If the config file is not used, the usage is:
-```
+```python
 usage: __init__.py [-h] [-v] [--quip_api_key QUIP_API_KEY]
                    [--quip_doc_id QUIP_DOC_ID]
                    [config_file]
